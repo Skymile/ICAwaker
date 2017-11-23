@@ -14,6 +14,7 @@ int main(int argc, char** argv)
 		if (!videoCapture.read(frame)) abort();
 		cv::imshow("cam", frame);
 		cv::waitKey(30);
+
 	}
 
 	return 0;
