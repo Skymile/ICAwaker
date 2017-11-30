@@ -1,74 +1,63 @@
 // Defines the entry point for the application.
 
 #include "stdafx.h"
-
-int distance(cv::Rect a, cv::Rect b) 
-{
-	auto aCenter = (a.br() + a.tl()) * 0.5;
-	auto bCenter = (b.br() + b.tl()) * 0.5;
-	return norm(aCenter - bCenter);	
-}
+#include "EyeDetector.h"
+#include "Utils.h"
 
 int main(int argc, char** argv)
 {
-	cv::VideoCapture videoCapture(1);
-	if (!videoCapture.isOpened()) abort();
+	try {
+		cv::VideoCapture videoCapture(1);
+		if (!videoCapture.isOpened()) abort();
 
-	cv::CascadeClassifier face_cascade, eye_cascade;
-	if (!face_cascade.load("haarcascade_face.xml")) abort();
-	if (!eye_cascade.load("haarcascade_eye.xml")) abort();
+		auto leftEyeWindowName = "left eye";
+		auto rightEyeWindowName = "right eye";
+		auto faceWindowName = "face";
+		auto camWindowName = "cam";
 
-	cv::namedWindow("face", 0);
-	cv::resizeWindow("face", cv::Size(256, 256));
-	cv::namedWindow("cam");
-	cv::namedWindow("eye", 0);
-	cv::resizeWindow("eye", cv::Size(128, 128));
+		cv::namedWindow(faceWindowName, 0);
+		cv::resizeWindow(faceWindowName, cv::Size(256, 256));
+		cv::namedWindow(camWindowName);
+		cv::namedWindow(leftEyeWindowName, 0);
+		cv::resizeWindow(leftEyeWindowName, cv::Size(200, 200));
+		cv::namedWindow(rightEyeWindowName, 0);
+		cv::resizeWindow(rightEyeWindowName, cv::Size(200, 200));
 
-	cv::Rect lastObject;
-	for (;;) {
-		cv::Mat frame;
-		if (!videoCapture.read(frame)) abort();
-		cv::Mat frameGray;
-		cv::cvtColor(frame, frameGray, CV_BGR2GRAY);
-		cv::equalizeHist(frameGray, frameGray);
+		//cv::createTrackbar("Threshold:", camWindowName, &threshold, 255);
+		//cv::createTrackbar("Scale:", camWindowName, &scaleRatio, 100);
 
-		std::vector<cv::Rect> faceObjects;
-		face_cascade.detectMultiScale(frameGray, faceObjects, 1.03, 2, 0, cv::Size(80, 80), cv::Size(150, 150));
+		EyeDetector eyeDetector("haarcascade_face.xml", "haarcascade_eye.xml");
 
-		cv::Rect bestObject;
-		int minDinstacne = INT_MAX;
-		for (auto o : faceObjects) {
-			auto dist = distance(lastObject, o);
-			if (dist < minDinstacne) {
-				bestObject = o;
-				minDinstacne = dist;
-			}
+		for (;;) {
+			cv::Mat frame;
+			if (!videoCapture.read(frame)) abort();
+			cv::Rect face, leftEye, rightEye;
+			eyeDetector.detect(frame, face, leftEye, rightEye);
+
+			auto faceFrame = frame(face);
+			auto leftEyeFrame = frame(leftEye);
+			auto rightEyeFrame = frame(rightEye);
+			cv::cvtColor(leftEyeFrame, leftEyeFrame, CV_BGR2GRAY);
+			cv::equalizeHist(leftEyeFrame, leftEyeFrame);
+			cv::cvtColor(rightEyeFrame, rightEyeFrame, CV_BGR2GRAY);
+			cv::equalizeHist(rightEyeFrame, rightEyeFrame);
+
+			cv::imshow(faceWindowName, faceFrame);
+			cv::imshow(leftEyeWindowName, leftEyeFrame);
+			cv::imshow(rightEyeWindowName, rightEyeFrame);
+
+			cv::rectangle(frame, face, cv::Scalar(255, 0, 0));
+			cv::rectangle(frame, leftEye, cv::Scalar(0, 255, 0));
+			cv::rectangle(frame, rightEye, cv::Scalar(0, 0, 255));
+			cv::imshow(camWindowName, frame);
+
+			if (cv::waitKey(1) == 'q') break;
 		}
-
-		if (bestObject.area() == 0) bestObject = lastObject;
-		else lastObject = bestObject;
-
-		if (bestObject.area() != 0) {
-			auto frameFace = frame(bestObject);
-			std::vector<cv::Rect> eyeObjects;
-			eye_cascade.detectMultiScale(frameFace, eyeObjects, 1.02, 2, 0, cv::Size(30, 30), cv::Size(60, 60));
-
-			for (auto o : eyeObjects) {
-				cv::rectangle(frameFace, o, cv::Scalar(0, 255, 0));
-			}
-
-			if(eyeObjects.size() > 0) cv::imshow("eye", frameFace(eyeObjects[0]));
-
-			cv::imshow("face", frameFace);
-		}
-
-		for (auto o : faceObjects) {
-			cv::rectangle(frame, o, cv::Scalar(255, 0, 0));
-		}
-
-		cv::imshow("cam", frame);
-
-		if (cv::waitKey(30) == 'q') break;
+	}
+	catch (cv::Exception e)
+	{
+		std::cout << e.what() << std::endl;
+		__debugbreak();
 	}
 
 	return 0;
