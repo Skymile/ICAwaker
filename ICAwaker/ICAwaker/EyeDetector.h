@@ -5,7 +5,7 @@
 struct EyeDetector
 {
 	EyeDetector(std::string haarCascadeFaceFilename, std::string haarCascadeEyeFilename,
-		double scaleRatio = 50) :
+		double scaleRatio = 30) :
 		_face_cascade(haarCascadeFaceFilename),
 		_eye_cascade(haarCascadeEyeFilename),
 		_scaleRatio(scaleRatio),
@@ -19,44 +19,103 @@ struct EyeDetector
 		return _scaleRatio;
 	}
 
-	void detect(cv::Mat frame, cv::Rect &face, cv::Rect &leftEye, cv::Rect &rightEye)
+	bool detect(cv::Mat frame, cv::Rect &face, cv::Rect &leftEye, cv::Rect &rightEye,
+		bool &faceDetected, bool &leftEyeDetected, bool &rightEyeDetected)
 	{
-		auto bestFaceObject = detectFace(frame);
+		_frameSize.y = frame.cols;
+		_frameSize.x = frame.rows;
+		if (faceDetected = detectFace(frame, face)) {
+			auto eyesDetected = detectEye(frame, face, leftEye, rightEye,
+				leftEyeDetected, rightEyeDetected);
+			leftEye += face.tl();
+			rightEye += face.tl();
 
-		if (bestFaceObject.area() != 0) {
-			face = bestFaceObject;
-			cv::Rect bestLeftEyeObject1, bestRigthEyeObject2;
-			detectEye(frame, bestFaceObject, bestLeftEyeObject1, bestRigthEyeObject2);
-			leftEye = bestLeftEyeObject1 + bestFaceObject.tl();
-			rightEye = bestRigthEyeObject2 + bestFaceObject.tl();
+			return eyesDetected;
 		}
+		leftEyeDetected = rightEyeDetected = false;
+
+		return false;
 	}
 
 private:
-	cv::Rect detectFace(const cv::Mat& frame)
+	bool detectFace(const cv::Mat& frame, cv::Rect &faceObject)
 	{
 		cv::Mat frameGray;
 		cv::cvtColor(frame, frameGray, CV_BGR2GRAY);
-		cv::equalizeHist(frameGray, frameGray);
+		//cv::equalizeHist(frameGray, frameGray);
 
 		std::vector<cv::Rect> faceObjects;
-		_face_cascade.detectMultiScale(frameGray, faceObjects, 1.03, 2, 0,
+		_face_cascade.detectMultiScale(frameGray, faceObjects, 1.04, 3, 0,
 			cv::Size(80, 80), cv::Size(150, 150));
 
-		cv::Rect bestFaceObject;
+
 		int minFaceObjectDinstacne = INT_MAX;
 		for (auto o : faceObjects) {
 			auto dist = distance(_lastFaceObject, o);
 			if (dist < minFaceObjectDinstacne) {
-				bestFaceObject = o;
+				faceObject = o;
 				minFaceObjectDinstacne = dist;
 			}
 		}
 
-		if (bestFaceObject.area() == 0) bestFaceObject = _lastFaceObject;
-		else _lastFaceObject = bestFaceObject;
+		if (faceObject.empty()) {
+			faceObject = _lastFaceObject;
+			return false;
+		}
+		else _lastFaceObject = faceObject;
 
-		return bestFaceObject;
+		return true;
+	}
+
+	void detetEyeBlink(cv::Mat frame, cv::Rect roi, double min)
+	{
+		cv::Mat inputFrame;
+		frame(roi).copyTo(inputFrame);
+
+		auto output = inputFrame;
+		cv::GaussianBlur(output, output, cv::Size(5, 5), 0);
+		cv::cvtColor(output, output, CV_BGR2GRAY);
+		cv::equalizeHist(output, output);
+		cv::threshold(output, output, min + 10, 255, CV_THRESH_BINARY);
+		//output = cv::Scalar(255) - output;
+
+		cv::SimpleBlobDetector::Params detectorParams{};
+		//detectorParams.filterByArea = true;
+		detectorParams.minArea = 5;
+		detectorParams.maxArea = 500;
+
+		detectorParams.filterByCircularity = true;
+		detectorParams.minCircularity = 0.68;
+
+		//detectorParams.filterByConvexity = true;
+		//detectorParams.minConvexity = 0.87;
+
+		//detectorParams.filterByInertia = true;
+		//detectorParams.minInertiaRatio = 0.01;
+		//detectorParams.minDistBetweenBlobs = 5;
+		//detectorParams.filterByColor = false;
+
+
+		auto detector = cv::SimpleBlobDetector::create(detectorParams);
+		std::vector<cv::KeyPoint> keyPoints;
+		detector->detect(output, keyPoints);
+
+		cv::Mat colorOutput;
+		cv::cvtColor(output, colorOutput, CV_GRAY2BGR);
+
+		//for (auto &k : keyPoints) {
+
+		//}
+
+		cv::drawKeypoints(colorOutput, keyPoints, colorOutput, cv::Scalar(255, 0, 0));
+
+		//cv::createTrackbar("threshold", "debug", &threshold, 500);
+		cv::imshow("debug", colorOutput);
+
+		if (keyPoints.empty()) {
+			cv::putText(frame, "blink", cv::Point(5, 20), CV_FONT_HERSHEY_SIMPLEX,
+				0.8, cv::Scalar(0, 0, 255));
+		}
 	}
 
 	cv::Rect findEyeCenter(cv::Rect eye, const cv::Mat& frame)
@@ -68,59 +127,44 @@ private:
 		cv::equalizeHist(eyeFrameGray, eyeFrameGray);
 		cv::Mat eyeFrameBlured;
 		cv::blur(eyeFrameGray, eyeFrameBlured, cv::Size(3, 3));
-
+		
 		double min;
-		cv::Point min_loc;
-		cv::minMaxLoc(eyeFrameBlured, &min, NULL, &min_loc, NULL);
-		cv::threshold(eyeFrameBlured, eyeFrameBlured, min, 255, CV_THRESH_BINARY);
+		cv::Point minLoc;
+		cv::minMaxLoc(eyeFrameBlured, &min, NULL, &minLoc, NULL);
 
-		return moveCenter(roi, roi.tl() + min_loc);;
+		detetEyeBlink(frame, moveCenter(roi, roi.tl() + minLoc), min);
+
+		return moveCenter(roi, roi.tl() + minLoc);
 	}
 
-	void detectEye(const cv::Mat& frame, cv::Rect bestFaceObject,
-		cv::Rect &leftEye, cv::Rect &rightEye)
+	bool detectEye(const cv::Mat& frame, cv::Rect bestFaceObject, cv::Rect &leftEye,
+		cv::Rect &rightEye, bool &leftEyeDetected, bool &rightEyeDetected)
 	{
-		auto frameFace = frame(bestFaceObject);
+		auto frameFace = frame(bestFaceObject); 
+		/*
+		binaryzacja? normalizacja?
+		*/
 		std::vector<cv::Rect> eyeObjects;
-		_eye_cascade.detectMultiScale(frameFace, eyeObjects, 1.02, 2, 0, cv::Size(30, 30), cv::Size(60, 60));
-
-		/*cv::Rect bestEyeObject1, bestEyeObject2;
-		int minEyeObjectDinstacne = INT_MAX;
-		for (auto o : eyeObjects) {
-		auto dist = distance(_lastEyeObject1, o);
-		if (dist < minEyeObjectDinstacne) {
-		if (bestEyeObject1.area()) {
-		bestEyeObject2 = bestEyeObject1;
-		bestEyeObject1 = o;
-		}
-		else {
-		bestEyeObject1 = o;
-		}
-		minEyeObjectDinstacne = dist;
-		}
-		}*/
-
-
-		//if (bestEyeObject1.area() == 0) bestEyeObject1 = _lastEyeObject1;
-		//else _lastEyeObject1 = bestEyeObject1;
+		_eye_cascade.detectMultiScale(frameFace, eyeObjects, 1.04, 3, 0, cv::Size(30, 30), cv::Size(60, 60));
 
 		leftEye = cv::Rect(INT_MAX, INT_MAX, INT_MAX, INT_MAX);
 		rightEye = cv::Rect();
 
-		bool leftEyeSet = false, rightEyeSet = false;
+		leftEyeDetected = false;
+		rightEyeDetected = false;
 
 		for (auto o : eyeObjects) {
 			if (o.x < leftEye.x) {
 				leftEye = o;
-				leftEyeSet = true;
+				leftEyeDetected = true;
 			}
 			if (o.x > rightEye.x) {
 				rightEye = o;
-				rightEyeSet = true;
+				rightEyeDetected = true;
 			}
 		}
 
-		if (leftEyeSet) {
+		if (leftEyeDetected) {
 			leftEye = findEyeCenter(leftEye, frameFace);
 			_lastLeftEyeObject = leftEye;
 		}
@@ -128,13 +172,15 @@ private:
 			leftEye = _lastLeftEyeObject;
 		}
 
-		if (rightEyeSet) {
+		if (rightEyeDetected) {
 			rightEye = findEyeCenter(rightEye, frameFace);
 			_lastRightEyeObject = rightEye;
 		}
 		else {
 			rightEye = _lastRightEyeObject;
 		}
+
+		return leftEyeDetected && rightEyeDetected;
 	}
 
 
@@ -143,5 +189,6 @@ private:
 	cv::Rect _lastFaceObject;
 	cv::Rect _lastLeftEyeObject;
 	cv::Rect _lastRightEyeObject;
+	cv::Point _frameSize;
 	double _scaleRatio;
 };
