@@ -95,7 +95,6 @@ private:
 		//detectorParams.minDistBetweenBlobs = 5;
 		//detectorParams.filterByColor = false;
 
-
 		auto detector = cv::SimpleBlobDetector::create(detectorParams);
 		std::vector<cv::KeyPoint> keyPoints;
 		detector->detect(output, keyPoints);
