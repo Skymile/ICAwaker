@@ -8,7 +8,7 @@
 int main(int argc, char** argv)
 {
 	try {
-		cv::VideoCapture videoCapture(1);
+		cv::VideoCapture videoCapture(0);
 		if (!videoCapture.isOpened()) abort();
 
 		auto leftEyeWindowName = "left eye";
