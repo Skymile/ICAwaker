@@ -67,10 +67,10 @@ private:
 		return true;
 	}
 
-	void detetEyeBlink(cv::Mat frame, cv::Rect roi, double min)
+	void detetEyeBlink(cv::Mat frameFace, cv::Mat frame, cv::Rect roi, double min)
 	{
 		cv::Mat inputFrame;
-		frame(roi).copyTo(inputFrame);
+		frameFace(roi).copyTo(inputFrame);
 
 		auto output = inputFrame;
 		cv::GaussianBlur(output, output, cv::Size(5, 5), 0);
@@ -79,7 +79,32 @@ private:
 		cv::threshold(output, output, min + 10, 255, CV_THRESH_BINARY);
 		//output = cv::Scalar(255) - output;
 
-		cv::SimpleBlobDetector::Params detectorParams{};
+		std::vector<cv::Vec4i> hierarchy;
+		std::vector<std::vector<cv::Point>> contours;
+		cv::findContours(output, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
+
+		static cv::RNG rng(6456);
+
+		cv::Mat outputImage = cv::Mat::zeros(output.size(), CV_8UC3);
+		cv::drawContours(outputImage, contours, contours.size() - 1, cv::Scalar(255, 255, 0), 1, 8, hierarchy, 0);
+
+		//std::vector<cv::Rect> boundRect(contours.size());
+		auto boundRect = cv::boundingRect(cv::Mat(contours.back()));
+		auto ratio = 1.f * boundRect.width / boundRect.height;
+
+		cv::imshow("debug", outputImage);
+		std::stringstream ss;
+		ss << std::setprecision(2) << std::fixed << ratio;
+
+		cv::putText(frameFace, ss.str(), cv::Point(5, 20), CV_FONT_HERSHEY_SIMPLEX,
+			0.8, cv::Scalar(128, 128, 0));
+
+		if (ratio > 1.5f) {
+			cv::putText(frameFace, "blink", cv::Point(5, 40), CV_FONT_HERSHEY_SIMPLEX,
+				0.8, cv::Scalar(0, 128, 128));
+		}
+
+		/*cv::SimpleBlobDetector::Params detectorParams{};
 		//detectorParams.filterByArea = true;
 		detectorParams.minArea = 5;
 		detectorParams.maxArea = 500;
@@ -114,24 +139,20 @@ private:
 		if (keyPoints.empty()) {
 			cv::putText(frame, "blink", cv::Point(5, 20), CV_FONT_HERSHEY_SIMPLEX,
 				0.8, cv::Scalar(0, 0, 255));
-		}
+		}*/
 	}
 
-	cv::Rect findEyeCenter(cv::Rect eye, const cv::Mat& frame)
+	cv::Rect findEyeCenter(cv::Rect eye, const cv::Mat& frame, cv::Rect& roi, cv::Point& minLoc, double& min)
 	{
-		auto roi = scale(eye, _scaleRatio / 100.);
+		roi = scale(eye, _scaleRatio / 100.);
 		auto eyeFrame = frame(roi);
 		cv::Mat eyeFrameGray;
 		cv::cvtColor(eyeFrame, eyeFrameGray, CV_BGR2GRAY);
 		cv::equalizeHist(eyeFrameGray, eyeFrameGray);
 		cv::Mat eyeFrameBlured;
 		cv::blur(eyeFrameGray, eyeFrameBlured, cv::Size(3, 3));
-		
-		double min;
-		cv::Point minLoc;
-		cv::minMaxLoc(eyeFrameBlured, &min, NULL, &minLoc, NULL);
 
-		detetEyeBlink(frame, moveCenter(roi, roi.tl() + minLoc), min);
+		cv::minMaxLoc(eyeFrameBlured, &min, NULL, &minLoc, NULL);
 
 		return moveCenter(roi, roi.tl() + minLoc);
 	}
@@ -139,7 +160,7 @@ private:
 	bool detectEye(const cv::Mat& frame, cv::Rect bestFaceObject, cv::Rect &leftEye,
 		cv::Rect &rightEye, bool &leftEyeDetected, bool &rightEyeDetected)
 	{
-		auto frameFace = frame(bestFaceObject); 
+		auto frameFace = frame(bestFaceObject);
 		/*
 		binaryzacja? normalizacja?
 		*/
@@ -164,7 +185,11 @@ private:
 		}
 
 		if (leftEyeDetected) {
-			leftEye = findEyeCenter(leftEye, frameFace);
+			cv::Rect roi;
+			cv::Point minLoc;
+			double min;
+			leftEye = findEyeCenter(leftEye, frameFace, roi, minLoc, min);
+			detetEyeBlink(frameFace, frame, moveCenter(roi, roi.tl() + minLoc), min);
 			_lastLeftEyeObject = leftEye;
 		}
 		else {
@@ -172,7 +197,10 @@ private:
 		}
 
 		if (rightEyeDetected) {
-			rightEye = findEyeCenter(rightEye, frameFace);
+			cv::Rect roi;
+			cv::Point minLoc;
+			double min;
+			rightEye = findEyeCenter(rightEye, frameFace, roi, minLoc, min);
 			_lastRightEyeObject = rightEye;
 		}
 		else {

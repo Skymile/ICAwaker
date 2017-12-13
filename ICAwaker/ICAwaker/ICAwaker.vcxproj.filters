@@ -33,6 +33,9 @@
     <ClInclude Include="EyeBlinkDetector.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="plot.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">

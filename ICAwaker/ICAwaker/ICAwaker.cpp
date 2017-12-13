@@ -4,6 +4,7 @@
 #include "EyeDetector.h"
 #include "Utils.h"
 #include "EyeBlinkDetector.h"
+#include "plot.hpp"
 
 int main(int argc, char** argv)
 {
@@ -69,6 +70,18 @@ int main(int argc, char** argv)
 				cv::equalizeHist(leftEyeFrame, leftEyeFrame);
 				cv::imshow(leftEyeWindowName, leftEyeFrame);
 				cv::rectangle(frame, leftEye, cv::Scalar(0, 255, 0));
+
+				// coœ
+				cv::Mat column;
+				cv::reduce(leftEyeFrame, column, 1, CV_REDUCE_SUM, CV_64F);
+				double max;
+				cv::minMaxLoc(column, NULL, &max);
+				column = column / max; // dzielenie przez zero?
+				auto plot = cv::plot::Plot2d::create(column);
+				cv::Mat plotMat;
+				plot->render(plotMat);
+
+				cv::imshow("plot", plotMat);
 			}
 
 			if (rightEyeDetected) {
